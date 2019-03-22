@@ -18,165 +18,6 @@
 
 #include "stm32f10x.h"
 
-//#define STD_P_L
-
-#ifdef STD_P_L
-
-// макроопределения кнопок
-#define BTN1PRS (GPIO_ReadInputDataBit(GPIOB, GPIO_Pin_5))
-#define BTN2PRS (!GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_15))
-#define BTN3PRS (!GPIO_ReadInputDataBit(GPIOB, GPIO_Pin_0))
-#define BTN4PRS (GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_11))
-
-// макроопределения режимов работы СД
-#define DOLEDON GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_13)
-#define LEDON GPIO_SetBits(GPIOC, GPIO_Pin_13)
-#define LEDOFF GPIO_ResetBits(GPIOC, GPIO_Pin_13)
-
-//макроопределения времени паузы и коммутации
-#define TIME_LED_STANDARD 	(uint16_t)1000
-#define TIME_COMMUT_BTN2 	(uint16_t)2000
-#define TIME_COMMUT_BTN3 	(uint16_t)3000
-#define TIME_COMMUT_BTN4 	(uint16_t)4000
-
-uint16_t *pcommutation;
-uint16_t *ppause;
-
-int main(void)
-{
-
-	volatile uint16_t commutation = TIME_LED_STANDARD; //тактов коммутации
-	volatile uint16_t pause = TIME_LED_STANDARD; //тактов паузы
-	pcommutation = &commutation;
-	ppause = &pause;
-	//абстрактный флаг, алгоритм выполняется только при смене его значения (см. в главном цикле)
-	uint8_t what_btn_prs = 0;
-
-	//Тактирование порта А, Б, Ц
-	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
-	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
-	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC, ENABLE);
-
-	GPIO_InitTypeDef gpio_init; //экземпляр структуры для конфигурирования ГПИО
-
-	// Конфигурирование периферии А
-	gpio_init.GPIO_Pin = GPIO_Pin_11;
-	gpio_init.GPIO_Mode = GPIO_Mode_IPD;
-	GPIO_Init(GPIOA, &gpio_init);
-
-	// Конфигурирование периферии Б
-	gpio_init.GPIO_Pin = GPIO_Pin_0;
-	gpio_init.GPIO_Mode = GPIO_Mode_IPU;
-	GPIO_Init(GPIOB, &gpio_init);
-
-	gpio_init.GPIO_Pin = GPIO_Pin_5;
-	gpio_init.GPIO_Mode = GPIO_Mode_IPD;
-	GPIO_Init(GPIOB, &gpio_init);
-
-	// Конфигурирование периферии Ц
-	gpio_init.GPIO_Pin = GPIO_Pin_13;
-	gpio_init.GPIO_Speed = GPIO_Speed_2MHz;
-	gpio_init.GPIO_Mode = GPIO_Mode_Out_PP;
-	GPIO_Init(GPIOC, &gpio_init);
-
-	gpio_init.GPIO_Pin = GPIO_Pin_15;
-	gpio_init.GPIO_Mode = GPIO_Mode_IPU;
-	GPIO_Init(GPIOC, &gpio_init);
-
-	//Тактирование таймера ТИМ3
-	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM3, ENABLE);
-
-	//Конфигурирование таймера	17.02.19- что-то не так, разобраться с clock_division
-	TIM_TimeBaseInitTypeDef tim_init; //экземпляр структуры для конфигурирования ТИМ3
-	TIM_TimeBaseStructInit(&tim_init); //заполнение стуктуры дефолтом
-	tim_init.TIM_Prescaler = 36000; //Частота работы таймера 1 KГц
-	tim_init.TIM_Period = TIME_LED_STANDARD; //Период таймера
-	tim_init.TIM_CounterMode = TIM_CounterMode_Up;
-	TIM_TimeBaseInit(TIM3, &tim_init);
-
-	//Разрешение прерывания таймера по переполнению
-	TIM_ITConfig(TIM3, TIM_IT_Update, ENABLE);
-
-	//Вкл прерывания таймера 3
-	NVIC_EnableIRQ(TIM3_IRQn);
-	TIM_Cmd(TIM3, ENABLE);
-
-	for(;;) {
-		if (BTN1PRS && what_btn_prs != 1) {
-			TIM_SetCounter(TIM3, 0x00);
-			//максимальное значение периода
-			TIM_SetAutoreload(TIM3, 0xFFFF);
-			//отключается разрешение прерывания по переполнению
-			TIM_ITConfig(TIM3, TIM_IT_Update, DISABLE);
-			commutation = TIME_LED_STANDARD;
-			what_btn_prs = 1;
-		}
-		else if (BTN2PRS && what_btn_prs == 0) {
-			commutation = TIME_COMMUT_BTN2;
-			what_btn_prs = 2;
-		}
-		else if (BTN3PRS && what_btn_prs == 0) {
-			commutation = TIME_COMMUT_BTN3;
-			what_btn_prs = 3;
-		}
-		else if (BTN4PRS && what_btn_prs == 0) {
-			commutation = TIME_COMMUT_BTN4;
-			what_btn_prs = 4;
-		}
-		else if (!BTN1PRS && what_btn_prs == 1) {
-			uint16_t now_pause = TIM_GetCounter(TIM3);
-			if (now_pause > 300) {
-				pause = now_pause;
-			}
-			//включается разрешение прерывания по переполнению
-			TIM_ITConfig(TIM3, TIM_IT_Update, ENABLE);
-			what_btn_prs = 0;
-			//принудительная генерация события (иначе придется ждать, пока таймер
-			//не дотикает до макс значения, а это противоречит заданию)
-			TIM_GenerateEvent(TIM3, TIM_EventSource_Update);
-		}
-		else if (!BTN2PRS && what_btn_prs == 2) {
-			commutation = TIME_LED_STANDARD;
-			what_btn_prs = 0;
-		}
-		else if (!BTN3PRS && what_btn_prs == 3) {
-			commutation = TIME_LED_STANDARD;
-			what_btn_prs = 0;
-		}
-		else if (!BTN4PRS && what_btn_prs == 4) {
-			commutation = TIME_LED_STANDARD;
-			what_btn_prs = 0;
-		}
-	}
-}
-
-void TIM3_IRQHandler(void){
-	//Сброс флага переполнения таймера
-	TIM_ClearFlag(TIM3, TIM_FLAG_Update);
-	//Введение понятий комутация/пауза
-	if (GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_13)){
-		GPIO_ResetBits(GPIOC, GPIO_Pin_13);
-		TIM_SetAutoreload(TIM3, *ppause);
-	}
-	else {
-		GPIO_SetBits(GPIOC, GPIO_Pin_13);
-		TIM_SetAutoreload(TIM3, *pcommutation);
-	}
-}
-
-#else
-
-// макроопределения кнопок
-#define BTN1PRS (GPIOB->IDR & GPIO_IDR_IDR5)
-#define BTN2PRS (!(GPIOC->IDR & GPIO_IDR_IDR15))
-#define BTN3PRS (!(GPIOB->IDR & GPIO_IDR_IDR0))
-#define BTN4PRS (GPIOA->IDR & GPIO_IDR_IDR11)
-
-// макроопределения режимов работы СД
-#define DOLEDON GPIOC->IDR & GPIO_IDR_IDR13
-#define LEDON GPIOC->BSRR = GPIO_BSRR_BR13
-#define LEDOFF GPIOC->BSRR = GPIO_BSRR_BS13
-
 //макроопределения времени паузы и коммутации
 #define TIME_LED_STANDARD 	(uint16_t)1000
 #define TIME_COMMUT_BTN2 	(uint16_t)2000
@@ -231,7 +72,7 @@ int main(void)
 	TIM3->CR1 |= TIM_CR1_CEN;
 
 	for(;;) {
-		if (BTN1PRS && what_btn_prs != 1) {
+		if ((GPIOB->IDR & GPIO_IDR_IDR5) && what_btn_prs != 1) {
 			TIM3->CNT = 0x0;
 			//максимальное значение периода
 			TIM3->ARR = 0xFFFF;
@@ -241,19 +82,19 @@ int main(void)
 			commutation = TIME_LED_STANDARD;
 			what_btn_prs = 1;
 		}
-		else if (BTN2PRS && what_btn_prs == 0) {
+		else if ((!(GPIOC->IDR & GPIO_IDR_IDR15)) && what_btn_prs == 0) {
 			what_btn_prs = 2;
 			commutation = TIME_COMMUT_BTN2;
 		}
-		else if (BTN3PRS && what_btn_prs == 0) {
+		else if ((!(GPIOB->IDR & GPIO_IDR_IDR0)) && what_btn_prs == 0) {
 			what_btn_prs = 3;
 			commutation = TIME_COMMUT_BTN3;
 		}
-		else if (BTN4PRS && what_btn_prs == 0) {
+		else if ((GPIOA->IDR & GPIO_IDR_IDR11) && what_btn_prs == 0) {
 			what_btn_prs = 4;
 			commutation = TIME_COMMUT_BTN4;
 		}
-		else if (!BTN1PRS && what_btn_prs == 1) {
+		else if ((!(GPIOB->IDR & GPIO_IDR_IDR5)) && what_btn_prs == 1) {
 			uint16_t now_pause = TIM3->CNT;
 			if (now_pause > 300) {
 				pause = now_pause;
@@ -265,15 +106,15 @@ int main(void)
 			//не дотикает до макс значения, а это противоречит заданию)
 			TIM3->EGR = 0x0001;
 		}
-		else if (!BTN2PRS && what_btn_prs == 2) {
+		else if ((GPIOC->IDR & GPIO_IDR_IDR15) && what_btn_prs == 2) {
 			what_btn_prs = 0;
 			commutation = TIME_LED_STANDARD;
 		}
-		else if (!BTN3PRS && what_btn_prs == 3) {
+		else if ((GPIOB->IDR & GPIO_IDR_IDR0) && what_btn_prs == 3) {
 			what_btn_prs = 0;
 			commutation = TIME_LED_STANDARD;
 		}
-		else if (!BTN4PRS && what_btn_prs == 4) {
+		else if ((!(GPIOA->IDR & GPIO_IDR_IDR11)) && what_btn_prs == 4) {
 			what_btn_prs = 0;
 			commutation = TIME_LED_STANDARD;
 		}
@@ -284,14 +125,13 @@ void TIM3_IRQHandler(void){
 	//Сброс флага переполнения таймера
 	TIM3->SR &= ~TIM_SR_UIF;
 	//Введение понятий комутация/пауза
-	if (DOLEDON){
-		LEDON;
+	if (GPIOC->IDR & GPIO_IDR_IDR13){
+		GPIOC->BSRR = GPIO_BSRR_BR13;
 		TIM3->ARR = commutation;
 	}
 	else {
-		LEDOFF;
+		GPIOC->BSRR = GPIO_BSRR_BS13;
 		TIM3->ARR = pause;
 	}
 }
 
-#endif	//STD_P_L
