@@ -18,6 +18,17 @@
 
 #include "stm32f10x.h"
 
+// макроопределения кнопок
+#define BTN1PRS (GPIOB->IDR & GPIO_IDR_IDR5)
+#define BTN2PRS (!(GPIOC->IDR & GPIO_IDR_IDR15))
+#define BTN3PRS (!(GPIOB->IDR & GPIO_IDR_IDR0))
+#define BTN4PRS (GPIOA->IDR & GPIO_IDR_IDR11)
+
+// макроопределения режимов работы СД
+#define DOLEDON GPIOC->IDR & GPIO_IDR_IDR13
+#define LEDON GPIOC->BSRR = GPIO_BSRR_BR13
+#define LEDOFF GPIOC->BSRR = GPIO_BSRR_BS13
+
 //макроопределения времени паузы и коммутации
 #define TIME_LED_STANDARD 	(uint16_t)1000
 #define TIME_COMMUT_BTN2 	(uint16_t)2000
@@ -72,7 +83,7 @@ int main(void)
 	TIM3->CR1 |= TIM_CR1_CEN;
 
 	for(;;) {
-		if ((GPIOB->IDR & GPIO_IDR_IDR5) && what_btn_prs != 1) {
+		if (BTN1PRS && what_btn_prs != 1) {
 			TIM3->CNT = 0x0;
 			//максимальное значение периода
 			TIM3->ARR = 0xFFFF;
@@ -82,19 +93,19 @@ int main(void)
 			commutation = TIME_LED_STANDARD;
 			what_btn_prs = 1;
 		}
-		else if ((!(GPIOC->IDR & GPIO_IDR_IDR15)) && what_btn_prs == 0) {
+		else if (BTN2PRS && what_btn_prs == 0) {
 			what_btn_prs = 2;
 			commutation = TIME_COMMUT_BTN2;
 		}
-		else if ((!(GPIOB->IDR & GPIO_IDR_IDR0)) && what_btn_prs == 0) {
+		else if (BTN3PRS && what_btn_prs == 0) {
 			what_btn_prs = 3;
 			commutation = TIME_COMMUT_BTN3;
 		}
-		else if ((GPIOA->IDR & GPIO_IDR_IDR11) && what_btn_prs == 0) {
+		else if (BTN4PRS && what_btn_prs == 0) {
 			what_btn_prs = 4;
 			commutation = TIME_COMMUT_BTN4;
 		}
-		else if ((!(GPIOB->IDR & GPIO_IDR_IDR5)) && what_btn_prs == 1) {
+		else if (!BTN1PRS && what_btn_prs == 1) {
 			uint16_t now_pause = TIM3->CNT;
 			if (now_pause > 300) {
 				pause = now_pause;
@@ -106,15 +117,15 @@ int main(void)
 			//не дотикает до макс значения, а это противоречит заданию)
 			TIM3->EGR = 0x0001;
 		}
-		else if ((GPIOC->IDR & GPIO_IDR_IDR15) && what_btn_prs == 2) {
+		else if (!BTN2PRS && what_btn_prs == 2) {
 			what_btn_prs = 0;
 			commutation = TIME_LED_STANDARD;
 		}
-		else if ((GPIOB->IDR & GPIO_IDR_IDR0) && what_btn_prs == 3) {
+		else if (!BTN3PRS && what_btn_prs == 3) {
 			what_btn_prs = 0;
 			commutation = TIME_LED_STANDARD;
 		}
-		else if ((!(GPIOA->IDR & GPIO_IDR_IDR11)) && what_btn_prs == 4) {
+		else if (!BTN4PRS && what_btn_prs == 4) {
 			what_btn_prs = 0;
 			commutation = TIME_LED_STANDARD;
 		}
@@ -125,13 +136,12 @@ void TIM3_IRQHandler(void){
 	//Сброс флага переполнения таймера
 	TIM3->SR &= ~TIM_SR_UIF;
 	//Введение понятий комутация/пауза
-	if (GPIOC->IDR & GPIO_IDR_IDR13){
-		GPIOC->BSRR = GPIO_BSRR_BR13;
+	if (DOLEDON){
+		LEDON;
 		TIM3->ARR = commutation;
 	}
 	else {
-		GPIOC->BSRR = GPIO_BSRR_BS13;
+		LEDOFF;
 		TIM3->ARR = pause;
 	}
 }
-
