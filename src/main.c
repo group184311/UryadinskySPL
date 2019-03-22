@@ -79,81 +79,82 @@ int main(void)
 	GPIO_Init(GPIOC, &gpio_init);
 
 	//Тактирование таймера ТИМ3
-	RCC->APB1ENR |= RCC_APB1ENR_TIM3EN;
+	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM3, ENABLE);
 
-	//Частота работы таймера 1 KГц
-	TIM3->PSC = 36000;
-
-	//Период таймера
-	TIM3->ARR = TIME_LED_STANDARD;
+	//Конфигурирование таймера	17.02.19- что-то не так, разобраться с clock_division
+	TIM_TimeBaseInitTypeDef tim_init; //экземпляр структуры для конфигурирования ТИМ3
+	TIM_TimeBaseStructInit(&tim_init); //заполнение стуктуры дефолтом
+	tim_init.TIM_Prescaler = 36000; //Частота работы таймера 1 KГц
+	tim_init.TIM_Period = TIME_LED_STANDARD; //Период таймера
+	tim_init.TIM_CounterMode = TIM_CounterMode_Up;
+	TIM_TimeBaseInit(TIM3, &tim_init);
 
 	//Разрешение прерывания таймера по переполнению
-	TIM3->DIER |= TIM_DIER_UIE;
+	TIM_ITConfig(TIM3, TIM_IT_Update, ENABLE);
 
 	//Вкл прерывания таймера 3
 	NVIC_EnableIRQ(TIM3_IRQn);
-	TIM3->CR1 |= TIM_CR1_CEN;
+	TIM_Cmd(TIM3, ENABLE);
 
 	for(;;) {
 		if (BTN1PRS && what_btn_prs != 1) {
-			TIM3->CNT = 0x0;
+			TIM_SetCounter(TIM3, 0x00);
 			//максимальное значение периода
-			TIM3->ARR = 0xFFFF;
+			TIM_SetAutoreload(TIM3, 0xFFFF);
 			//отключается разрешение прерывания по переполнению
-			TIM3->DIER &= ~TIM_DIER_UIE;
-
+			TIM_ITConfig(TIM3, TIM_IT_Update, DISABLE);
 			commutation = TIME_LED_STANDARD;
 			what_btn_prs = 1;
 		}
 		else if (BTN2PRS && what_btn_prs == 0) {
-			what_btn_prs = 2;
 			commutation = TIME_COMMUT_BTN2;
+			what_btn_prs = 2;
 		}
 		else if (BTN3PRS && what_btn_prs == 0) {
-			what_btn_prs = 3;
 			commutation = TIME_COMMUT_BTN3;
+			what_btn_prs = 3;
 		}
 		else if (BTN4PRS && what_btn_prs == 0) {
-			what_btn_prs = 4;
 			commutation = TIME_COMMUT_BTN4;
+			what_btn_prs = 4;
 		}
 		else if (!BTN1PRS && what_btn_prs == 1) {
-			uint16_t now_pause = TIM3->CNT;
+			uint16_t now_pause = TIM_GetCounter(TIM3);
 			if (now_pause > 300) {
 				pause = now_pause;
 			}
 			//включается разрешение прерывания по переполнению
-			TIM3->DIER |= TIM_DIER_UIE;
+			TIM_ITConfig(TIM3, TIM_IT_Update, ENABLE);
 			what_btn_prs = 0;
 			//принудительная генерация события (иначе придется ждать, пока таймер
 			//не дотикает до макс значения, а это противоречит заданию)
-			TIM3->EGR = 0x0001;
+			TIM_GenerateEvent(TIM3, TIM_EventSource_Update);
 		}
 		else if (!BTN2PRS && what_btn_prs == 2) {
-			what_btn_prs = 0;
 			commutation = TIME_LED_STANDARD;
+			what_btn_prs = 0;
 		}
 		else if (!BTN3PRS && what_btn_prs == 3) {
-			what_btn_prs = 0;
 			commutation = TIME_LED_STANDARD;
+			what_btn_prs = 0;
 		}
 		else if (!BTN4PRS && what_btn_prs == 4) {
-			what_btn_prs = 0;
 			commutation = TIME_LED_STANDARD;
+			what_btn_prs = 0;
 		}
 	}
 }
 
 void TIM3_IRQHandler(void){
 	//Сброс флага переполнения таймера
-	TIM3->SR &= ~TIM_SR_UIF;
+	TIM_ClearFlag(TIM3, TIM_FLAG_Update);
 	//Введение понятий комутация/пауза
-	if (DOLEDON){
-		LEDON;
-		TIM3->ARR = *pcommutation;
+	if (GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_13)){
+		GPIO_ResetBits(GPIOC, GPIO_Pin_13);
+		TIM_SetAutoreload(TIM3, *ppause);
 	}
 	else {
-		LEDOFF;
-		TIM3->ARR = *ppause;
+		GPIO_SetBits(GPIOC, GPIO_Pin_13);
+		TIM_SetAutoreload(TIM3, *pcommutation);
 	}
 }
