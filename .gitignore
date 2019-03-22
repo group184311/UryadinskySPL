@@ -8,3 +8,5 @@ inc/
 src/syscalls.c
 src/system_stm32f10x.c
 startup/
+Debug/
+.settings/
