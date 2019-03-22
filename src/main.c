@@ -19,15 +19,15 @@
 #include "stm32f10x.h"
 
 // макроопределения кнопок
-#define BTN1PRS (GPIOB->IDR & GPIO_IDR_IDR5)
-#define BTN2PRS (!(GPIOC->IDR & GPIO_IDR_IDR15))
-#define BTN3PRS (!(GPIOB->IDR & GPIO_IDR_IDR0))
-#define BTN4PRS (GPIOA->IDR & GPIO_IDR_IDR11)
+#define BTN1PRS (GPIO_ReadInputDataBit(GPIOB, GPIO_Pin_5))
+#define BTN2PRS (!GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_15))
+#define BTN3PRS (!GPIO_ReadInputDataBit(GPIOB, GPIO_Pin_0))
+#define BTN4PRS (GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_11))
 
 // макроопределения режимов работы СД
-#define DOLEDON GPIOC->IDR & GPIO_IDR_IDR13
-#define LEDON GPIOC->BSRR = GPIO_BSRR_BR13
-#define LEDOFF GPIOC->BSRR = GPIO_BSRR_BS13
+#define DOLEDON GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_13)
+#define LEDON GPIO_SetBits(GPIOC, GPIO_Pin_13)
+#define LEDOFF GPIO_ResetBits(GPIOC, GPIO_Pin_13)
 
 //макроопределения времени паузы и коммутации
 #define TIME_LED_STANDARD 	(uint16_t)1000
@@ -35,36 +35,48 @@
 #define TIME_COMMUT_BTN3 	(uint16_t)3000
 #define TIME_COMMUT_BTN4 	(uint16_t)4000
 
-volatile uint16_t commutation = TIME_LED_STANDARD; //тактов коммутации
-volatile uint16_t pause = TIME_LED_STANDARD; //тактов паузы
-uint8_t what_btn_prs = 0;
+uint16_t *pcommutation;
+uint16_t *ppause;
 
 int main(void)
 {
-	//Тактирование порта А, Б, Ц
-	RCC->APB2ENR |= (RCC_APB2ENR_IOPAEN | RCC_APB2ENR_IOPBEN | RCC_APB2ENR_IOPCEN);
+	volatile uint16_t commutation = TIME_LED_STANDARD; //тактов коммутации
+	volatile uint16_t pause = TIME_LED_STANDARD; //тактов паузы
+	pcommutation = &commutation;
+	ppause = &pause;
+	//абстрактный флаг, алгоритм выполняется только при смене его значения (см. в главном цикле)
+	uint8_t what_btn_prs = 0;
 
-	//Сброс состояния пинов
-	GPIOA->CRH &= ~(GPIO_CRH_CNF11 | GPIO_CRH_MODE11);
-	GPIOB->CRL &= ~(GPIO_CRL_CNF0 | GPIO_CRL_MODE0 |GPIO_CRL_CNF5 | GPIO_CRL_MODE5);
-	GPIOC->CRH &= ~(GPIO_CRH_CNF13 | GPIO_CRH_MODE13 | GPIO_CRH_CNF15 | GPIO_CRH_MODE15);
+	//Тактирование порта А, Б, Ц
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC, ENABLE);
+
+	GPIO_InitTypeDef gpio_init; //экземпляр структуры для конфигурирования ГПИО
 
 	// Конфигурирование периферии А
-	GPIOA->CRH |= GPIO_CRH_CNF11_1; //Кнопка 4
-	GPIOA->ODR &= ~GPIO_ODR_ODR11;
+	gpio_init.GPIO_Pin = GPIO_Pin_11;
+	gpio_init.GPIO_Mode = GPIO_Mode_IPD;
+	GPIO_Init(GPIOA, &gpio_init);
 
 	// Конфигурирование периферии Б
-	GPIOB->CRL |= GPIO_CRL_CNF0_1; //Кнопка 3
-	GPIOB->ODR |= GPIO_ODR_ODR0;
+	gpio_init.GPIO_Pin = GPIO_Pin_0;
+	gpio_init.GPIO_Mode = GPIO_Mode_IPU;
+	GPIO_Init(GPIOB, &gpio_init);
 
-	GPIOB->CRL |= GPIO_CRL_CNF5_1;//Кнопка 1
-	GPIOB->ODR &= ~GPIO_ODR_ODR5;
+	gpio_init.GPIO_Pin = GPIO_Pin_5;
+	gpio_init.GPIO_Mode = GPIO_Mode_IPD;
+	GPIO_Init(GPIOB, &gpio_init);
 
 	// Конфигурирование периферии Ц
-	GPIOC->CRH |= GPIO_CRH_MODE13_1;//Светодиод
+	gpio_init.GPIO_Pin = GPIO_Pin_13;
+	gpio_init.GPIO_Speed = GPIO_Speed_2MHz;
+	gpio_init.GPIO_Mode = GPIO_Mode_Out_PP;
+	GPIO_Init(GPIOC, &gpio_init);
 
-	GPIOC->CRH |= GPIO_CRH_CNF15_1; //Кнопка 2
-	GPIOC->ODR |= GPIO_ODR_ODR15;
+	gpio_init.GPIO_Pin = GPIO_Pin_15;
+	gpio_init.GPIO_Mode = GPIO_Mode_IPU;
+	GPIO_Init(GPIOC, &gpio_init);
 
 	//Тактирование таймера ТИМ3
 	RCC->APB1ENR |= RCC_APB1ENR_TIM3EN;
@@ -138,10 +150,10 @@ void TIM3_IRQHandler(void){
 	//Введение понятий комутация/пауза
 	if (DOLEDON){
 		LEDON;
-		TIM3->ARR = commutation;
+		TIM3->ARR = *pcommutation;
 	}
 	else {
 		LEDOFF;
-		TIM3->ARR = pause;
+		TIM3->ARR = *ppause;
 	}
 }
